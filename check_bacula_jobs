@@ -1,0 +1,105 @@
+#!/usr/bin/python
+# Bacula PostgreSQL monitor for shall and Nagios
+# 2012, Robert Plestenjak
+# http://flegma.blog.com
+# Updated 2014, Denis Brækhus
+
+import psycopg2
+import sys
+import getopt
+import os
+
+noArgv = nagios = period = 0
+if len(sys.argv) >= 2:
+   try:
+      optList, args = getopt.getopt(sys.argv[1:], 'hnp:', ["help", "nagios", "period="])
+      for opt, arg in optList:
+         if opt == "-h":
+            showhelp = 1
+         elif opt in ("-n", "--nagios"):
+            nagios = 1
+         elif opt in ("-p", "--period"):
+            period = arg
+   except:
+      showhelp = 1
+else:
+   showhelp = 1
+
+if noArgv == 1:
+   print "Usage: {0} -h -n -p <time period>".format(os.path.basename(sys.argv[0]))
+   colOut = "{0:<6} {1:<20}"
+   print colOut.format("-h", "this help")
+   print colOut.format("-n", "nagios plugin")
+   print colOut.format("-p NN", "time period, where value NN is in hours")
+   sys.exit()
+
+status = { "OK": 0, "WARNING": 1, "CRITICAL": 2 }
+
+# Connection variables
+# For local connection with ident authentication skip dbPass, dbPort and dbHost
+dbName = "bacula"
+dbUser = "bacula"
+dbPass = ""
+dbHost = "" 
+dbPort = ""
+
+dsn = psycopg2.connect( database=dbName, user=dbUser, \
+                        password=dbPass, host=dbHost, port=dbPort )
+                        
+db = dsn.cursor()
+sql = "select jobid, name, jobstatus, starttime, age(endtime, starttime) as time"
+sql += " from job where starttime >= now() - interval '{0} hours'".format(period)
+sql += " order by jobid;"
+try:
+   db.execute(sql)
+except Exception:
+   raise
+
+rows = db.fetchall()
+ok = warning = critical = 0
+jobstr = ""
+errors = ["f", "E"]
+warnings = ["e"]
+errorjobs = []
+
+try:
+   for row in rows:
+      if row[2] in warnings:
+         warning += 1
+         if not row[1] in errorjobs:
+            errorjobs.append(row[1])
+      elif row[2] in errors:
+         critical += 1
+         if not row[1] in errorjobs:
+            errorjobs.append(row[1])
+      elif row[2] == 'T':
+         ok += 1
+   if critical > 0:
+      result = "CRITICAL"
+   elif warning > 0:
+      result = "WARNING"
+   else:
+      result = "OK"
+   if len(errorjobs) > 0:
+      jobstr = "Errors: "
+      jobstr += ' '.join(errorjobs)
+except Exception:
+   raise
+
+if nagios == 1:
+   print "Last", period, "hrs: " + str(result) + ". Found", len(rows), \
+      "jobs;", ok, "OK,", warning ,"WARNING and", critical, "CRITICAL.", jobstr
+else:
+   rowNo=0
+   try:
+      colOut = "{0:>4} {1:>5} {2:<32} {3:>6} {4:<20} {5:>8}"
+      print colOut.format("row", "jobId", "job Name", "status", "start Date", "duration")
+      for row in rows:
+         rowNo += 1
+         print colOut.format(rowNo, row[0], row[1], row[2], str(row[3]), row[4])
+   except Exception:
+      raise
+
+db.close()
+dsn.close()
+sys.exit(status[result])
