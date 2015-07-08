@@ -2,7 +2,7 @@
 # Bacula PostgreSQL monitor for shall and Nagios
 # 2012, Robert Plestenjak
 # http://flegma.blog.com
-# Updated 2014, Denis Brækhus
+# Updated 2014, Denis Braekhus
 
 import psycopg2
 import sys
